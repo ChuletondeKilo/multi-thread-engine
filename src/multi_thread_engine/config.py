@@ -2,23 +2,20 @@
 # This configuration objects will be exposed to the client.
 from dataclasses import dataclass, field
 
+
 @dataclass
-class Base:
-
-    ...
-
-class ThreadPoolConfig(Base):
+class ThreadPoolConfig:
 
     worker_number: int = field(default=3)
 
+@dataclass
+class QueueConfig:
 
-class QueueConfig(Base):
+    maxsize: int
 
-    ...
-
-
-class EngineConfig(Base):
+@dataclass
+class EngineConfig:
 
     thread_config: ThreadPoolConfig
-    queue_config: QueueConfig
 
+__all__ = ["EngineConfig", "ThreadPoolConfig", "QueueConfig"]

@@ -30,9 +30,9 @@ class JobQueue(Queue[T], Generic[T]):
         super().put(item, block=block, timeout=timeout)
 
 class WorkerPool(Generic[T]):
-    def __init__(self, config: EngineConfig):
-        self.queue: JobQueue[T] = JobQueue(**vars(config.queue_config))
-        self.config = config
+    def __init__(self, config: EngineConfig, queue_config: QueueConfig):
+        self.queue: JobQueue[T] = JobQueue(**vars(queue_config))
+        self.config: EngineConfig = config
 
         for i in range(config.thread_config.worker_number):
             t = threading.Thread(target=self._worker, daemon=True, name=f"Worker-{i}")
