@@ -1,11 +1,9 @@
 # The idea of this module is to provide an external interface to objects that the client must use
 from abc import ABC, abstractmethod
-from queue import Queue
 from dataclasses import dataclass
 from typing import TypeVar, Generic
-import threading
 import logging
-
+from concurrent.futures import ThreadPoolExecutor, Future, wait
 logging.basicConfig(level=logging.INFO)
 
 from .config import *
@@ -23,36 +21,47 @@ class QueueObject(ABC):
 
 T = TypeVar('T', bound=QueueObject)
 
-class JobQueue(Queue[T], Generic[T]):
-    def put(self, item: T, block: bool = True, timeout: float | None = None) -> None:
-        if not isinstance(item, QueueObject):
-            raise TypeError(f"Job must be a BaseJob, got {type(item).__name__}")
-        super().put(item, block=block, timeout=timeout)
-
 class WorkerPool(Generic[T]):
-    def __init__(self, config: EngineConfig, queue_config: QueueConfig):
-        self.queue: JobQueue[T] = JobQueue(**vars(queue_config))
+    def __init__(self, config: EngineConfig):
         self.config: EngineConfig = config
-
-        for i in range(config.thread_config.worker_number):
-            t = threading.Thread(target=self._worker, daemon=True, name=f"Worker-{i}")
-            t.start()
-
-    def _worker(self):
-        while True:
-            job: T = self.queue.get()
-            try:
-                job.run()
-            finally:
-                logging.info(f"Finished job {job.object_name}")
-                self.queue.task_done()
+        self.executor = ThreadPoolExecutor(
+            max_workers=config.thread_config.worker_number,
+            thread_name_prefix="Worker"
+        )
+        self.futures: list[Future] = []
 
     def submit(self, job: T) -> None:
-        """Enqueue a job for processing."""
-        self.queue.put(job)
+        """Submit a job to the thread pool. Returns a Future."""
+
+        if not isinstance(job, QueueObject):
+            raise TypeError(f"Job must be a QueueObject, got {type(job).__name__}")
+
+        def _wrapped():
+            logging.info(f"Starting job {job.object_name}")
+            try:
+                return job.run()
+            finally:
+                logging.info(f"Finished job {job.object_name}")
+
+        future = self.executor.submit(_wrapped)
+        self.futures.append(future)
+        return future
 
     def join(self) -> None:
-        """Block until all jobs are finished."""
-        self.queue.join()
+        """Block until all submitted jobs are finished."""
+        if self.futures:
+            wait(self.futures)
+
+    def shutdown(self, wait: bool = True) -> None:
+        """Shut down the executor cleanly."""
+        self.executor.shutdown(wait=wait)
+
+    # --- context manager support ---
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.shutdown(wait=True)
+
 
 __all__ = ["QueueObject", "WorkerPool"]
